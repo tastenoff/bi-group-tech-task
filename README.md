@@ -14,6 +14,11 @@ vagrant up
 ### 2. Создание пользователей `ansible` на хостах
 - **Описание:** На каждом хосте (docker01, etcd01, pgsql01, pgsql02) вручную создается пользователь `ansible`. У него должны быть права на выполнение команд с использованием `sudo` без пароля.
 
+```bash
+sudo useradd ansible
+sudo usermod -aG wheel ansible
+```
+
 ---
 
 ### 3. Создание SSH-ключа на `docker01`
