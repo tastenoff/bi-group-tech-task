@@ -1,0 +1,54 @@
+scope: patroni
+namespace: /service/
+name: {{ ansible_hostname }}
+
+etcd:
+  hosts: 192.168.67.5:2379
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: {{ ansible_host }}:5432
+  data_dir: /var/lib/pgsql/{{ pgsql_version }}/data
+  bin_dir: /usr/pgsql-{{ pgsql_version }}/bin
+  authentication:
+    superuser:
+      username: postgres
+      password: "{{ postgres_password }}"
+    replication:
+      username: replica_user
+      password: ReplicaPassword
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      parameters:
+        max_connections: 100
+        shared_buffers: 256MB
+        logging_collector: on
+        log_directory: /var/log/postgresql
+        log_filename: postgresql.log
+        log_statement: all
+        log_connections: on
+        track_activities: on
+        track_io_timing: on
+        wal_level: replica
+        hot_standby: on
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_segments: 8
+        shared_preload_libraries: pg_stat_statements
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  users:
+    admin:
+      password: AdminPassword
+      options:
+        - createrole
+        - createdb
+

@@ -1,0 +1,13 @@
+---
+- name: Setup etcd
+  hosts: etcd01
+  become: true
+  roles:
+    - etcd
+  
+- name: Setup Postgre      
+  hosts: pgsql01:pgsql02
+  become: true
+  roles:
+    - postgresql
+
