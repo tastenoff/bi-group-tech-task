@@ -4,7 +4,7 @@
   become: true
   tasks:
     - name: Install prerequisites
-      yum:
+      dnf:
         name: "{{ item }}"
         state: present
       loop:
@@ -29,13 +29,19 @@
         state: present
 
     - name: Install Docker
-      yum:
+      dnf:
         name: "{{ item }}"
         state: present
       loop:
         - docker-ce
         - docker-ce-cli
         - containerd.io
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: true
 
     - name: Add current user to Docker group
       user:
