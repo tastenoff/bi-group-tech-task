@@ -13,14 +13,18 @@
         - lvm2
 
     - name: Add Docker repository
-      command: >
-        yum-config-manager --add-repo
-        https://download.docker.com/linux/centos/docker-ce.repo
+      yum_repository:
+        name: docker-ce
+        description: Docker CE Stable Repository
+        baseurl: https://download.docker.com/linux/centos/docker-ce.repo
+        enabled: 1
+        gpgcheck: 1
+        gpgkey: https://download.docker.com/linux/centos/gpg
 
     - name: Enable aarch64 repository
       lineinfile:
         path: /etc/yum.repos.d/docker-ce.repo
-        regexp: '^#basearch=aarch64$'
+        regexp: '^#basearch='
         line: 'basearch=aarch64'
         state: present
 
