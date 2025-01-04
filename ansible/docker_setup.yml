@@ -4,31 +4,34 @@
   become: true
   tasks:
     - name: Install prerequisites
-      apt:
+      yum:
         name: "{{ item }}"
         state: present
       loop:
-        - apt-transport-https
-        - ca-certificates
-        - curl
-        - software-properties-common
-
-    - name: Add Docker GPG key
-      command: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+        - yum-utils
+        - device-mapper-persistent-data
+        - lvm2
 
     - name: Add Docker repository
-      apt_repository:
-        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-        state: present
+      command: >
+        yum-config-manager
+        --add-repo
+        https://download.docker.com/linux/centos/docker-ce.repo
 
     - name: Install Docker
-      apt:
+      yum:
         name: "{{ item }}"
         state: present
       loop:
         - docker-ce
         - docker-ce-cli
         - containerd.io
+
+    - name: Enable and start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: true
 
     - name: Add current user to Docker group
       user:
