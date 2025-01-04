@@ -14,9 +14,15 @@
 
     - name: Add Docker repository
       command: >
-        yum-config-manager
-        --add-repo
+        yum-config-manager --add-repo
         https://download.docker.com/linux/centos/docker-ce.repo
+
+    - name: Enable aarch64 repository
+      lineinfile:
+        path: /etc/yum.repos.d/docker-ce.repo
+        regexp: '^#basearch=aarch64$'
+        line: 'basearch=aarch64'
+        state: present
 
     - name: Install Docker
       yum:
@@ -26,12 +32,6 @@
         - docker-ce
         - docker-ce-cli
         - containerd.io
-
-    - name: Enable and start Docker service
-      systemd:
-        name: docker
-        state: started
-        enabled: true
 
     - name: Add current user to Docker group
       user:
