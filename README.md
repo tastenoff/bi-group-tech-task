@@ -34,17 +34,19 @@ ssh-keygen -t rsa -b 4096 -f ~/.ssh/ansible_key
 - **Описание:** Передаем созданный ключ `ansible_key.pub` на хосты etcd01, pgsql01 и pgsql02 для настройки доступа без пароля.
 
 ```bash
-ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.67.5 
-ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.67.6 
-ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.67.7 
+ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.18.87 
+ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.18.83
+ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.18.84
+ssh-copy-id -i ~/.ssh/ansible_key.pub ansible@192.168.18.85
 ```
 
 ---
 
 ### 5. Выполнение плейбуков Ansible
 - **Описание:** На хосте `docker01`, находясь в директории `/home/ansible/ansible`, выполняются плейбуки Ansible для установки и настройки необходимых компонентов:
-  - `site.yml` — настраивает все хосты (etcd01, pgsql01, pgsql02) в соответствии с требованиями проекта.
-  - `install_docker.yml` — устанавливает Docker на хосте docker01.
+  - `etcd.yml` — устанавливает кластер Patroni + Postgresql на хостах pgsql01 и pgsql02
+  - `pgsql_patroni.yml` — устанавливает кластер Patroni + Postgresql на хостах pgsql01 и pgsql02
+  - `docker_install.yml` — устанавливает Docker на хостах.
 
 ```bash
 ansible-playbook -i inventory/hosts.yml site.yml && ansible-playbook install_docker.yml -i inventory/hosts.yml
