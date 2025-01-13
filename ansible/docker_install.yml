@@ -1,0 +1,101 @@
+---
+- name: Install Docker and Docker Compose on Oracle Linux 9.5 (aarch64)
+  hosts: all
+  become: true
+
+  tasks:
+    # Enable necessary repositories
+    - name: Enable Oracle Linux repositories
+      command: dnf config-manager --enable ol9_baseos_latest ol9_appstream ol9_addons
+
+    - name: Remove old or conflicting repository files
+      file:
+        path: /etc/yum.repos.d/yum.oracle.com_repo_OracleLinux_OL9_latest_aarch64_.repo
+        state: absent
+
+    # Update DNS settings
+    - name: Add Google DNS to resolv.conf
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "nameserver 8.8.8.8"
+        - "nameserver 8.8.4.4"
+
+    # Clean and update DNF cache
+    - name: Clean DNF cache
+      command: dnf clean all
+
+    - name: Make DNF cache
+      command: dnf makecache
+
+    # Update system packages
+    - name: Update all packages
+      command: dnf update -y
+
+    # Install dependencies
+    - name: Install required dependencies
+      dnf:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+        state: present
+
+    # Add Docker repository
+    - name: Add Docker repository
+      command: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+    - name: Replace $basearch with aarch64 in Docker repository
+      lineinfile:
+        path: /etc/yum.repos.d/docker-ce.repo
+        regexp: '\$basearch'
+        line: 'aarch64'
+
+    # Install Docker
+    - name: Install Docker packages
+      dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+
+    - name: Start and enable Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # Install Docker Compose
+    - name: Download Docker Compose binary
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v2.32.2/docker-compose-linux-aarch64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Make Docker Compose executable
+      file:
+        path: /usr/local/bin/docker-compose
+        mode: '0755'
+        owner: root
+        group: root
+
+    # Add current user to Docker group
+    - name: Add current user to Docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    # Pause for user to re-login or manually restart shell
+    - name: Pause for user to re-login or restart shell
+      pause:
+        seconds: 10
+
+    # Login to Docker
+    - name: Docker login
+      shell: "docker login -u tastenoff -p Realscrip7182"
+      args:
+        warn: false

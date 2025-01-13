@@ -1,0 +1,228 @@
+---
+- name: "Install and configure PostgreSQL + Patroni on pgsql01 and pgsql02"
+  hosts: pgsql
+  become: true
+
+  vars:
+    patroni_scope: "patroni_cluster"
+    patroni_name: "{{ inventory_hostname }}"
+    etcd_host: "192.168.8.70"       # IP etcd01
+    postgres_password: "postgres"
+    test_user_password: "postgres"
+    monitoring_user_password: "postgres"
+    replication_password: "postgres"
+
+  tasks:
+    ########################################################################
+    # 1. Подключаем репозиторий PGDG и отключаем модуль PostgreSQL из AppStream
+    ########################################################################
+
+    - name: "Install the PGDG repository RPM for OL9/aarch64"
+      dnf:
+        name: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-aarch64/pgdg-redhat-repo-latest.noarch.rpm"
+        disable_gpg_check: true
+        state: present
+
+    - name: "Disable built-in postgresql module"
+      shell: |
+        dnf -qy module disable postgresql
+      args:
+        executable: /bin/bash
+
+    ########################################################################
+    # 2. Устанавливаем необходимые пакеты
+    ########################################################################
+
+    - name: "Install dependencies and PostgreSQL 15"
+      package:
+        name:
+          - python3
+          - python3-pip
+          - libpq
+          - postgresql15
+          - postgresql15-contrib
+        state: present
+
+    - name: "Install Patroni via pip"
+      pip:
+        name:
+          - psycopg2-binary   # Для Python работы с PostgreSQL
+          - "patroni[etcd3]"           # Собственно Patroni
+        state: latest
+
+    ########################################################################
+    # 3. Настраиваем Patroni
+    ########################################################################
+    - name: "Remove old PostgreSQL data directory if exists"
+      file:
+        path: /var/lib/postgresql/15/data
+        state: absent
+
+    - name: "Remove old Patroni data directory if exists"
+      file:
+        path: /var/lib/pgsql/15/data
+        state: absent
+
+    - name: "Create Patroni config directory"
+      file:
+        path: /etc/patroni
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0755'
+
+    - name: "Create Patroni config"
+      copy:
+        dest: /etc/patroni/patroni.yml
+        owner: postgres
+        group: postgres
+        mode: '0644'
+        content: |
+          scope: {{ patroni_scope }}
+          name: {{ patroni_name }}
+
+          etcd3:
+            hosts: 
+              - 192.168.8.70
+
+          restapi:
+            listen: 0.0.0.0:8008
+            connect_address: {{ ansible_default_ipv4.address }}:8008
+
+          bootstrap:
+            initdb:
+              - encoding: UTF8
+              - data-checksums
+            users:
+              postgres:
+                password: "{{ postgres_password }}"
+            dcs:
+              maximum_lag_on_failover: 1048576
+              synchronous_mode: true
+              synchronous_mode_strict: false
+              synchronous_node_count: 1
+              postgresql:
+                parameters:
+                  shared_preload_libraries: "pg_stat_statements"
+                  track_activity_query_size: 2048
+                  track_io_timing: on
+                  max_connections: 200
+
+          postgresql:
+            listen: 0.0.0.0:5432
+            connect_address: {{ ansible_default_ipv4.address }}:5432
+            data_dir: /var/lib/postgresql/15/data
+            bin_dir: /usr/pgsql-15/bin
+            pgpass: /var/lib/pgsql/.pgpass
+            authentication:
+              superuser:
+                username: postgres
+                password: "{{ postgres_password }}"
+              replication:
+                username: replicator
+                password: "{{ replication_password }}"
+            parameters:
+              wal_level: replica
+              hot_standby: "on"
+              max_wal_senders: 10
+              max_replication_slots: 10
+            pg_hba:
+              - host replication replicator 192.168.8.68/32 md5
+              - host replication replicator 192.168.8.71/32 md5
+              - host all replicator {{ ansible_default_ipv4.address }}/32 md5
+              - host all replicator 0.0.0.0/0 md5
+              - host all all 0.0.0.0/0 md5
+    - name: "Create data directory for PostgreSQL"
+      file:
+        path: /var/lib/postgresql/15/data
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0700'
+
+    ########################################################################
+    # 4. Создаём systemd unit и запускаем Patroni
+    ########################################################################
+
+    - name: "Set up systemd for Patroni"
+      copy:
+        dest: /etc/systemd/system/patroni.service
+        content: |
+          [Unit]
+          Description=Patroni Service
+          After=network.target
+
+          [Service]
+          User=postgres
+          Group=postgres
+          ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart patroni
+
+    - name: "Enable and start Patroni"
+      systemd:
+        name: patroni
+        state: started
+        enabled: yes
+
+    - name: "Wait a bit for Patroni cluster to come up"
+      pause:
+        seconds: 30
+
+
+    ########################################################################
+    # 5. Создаём и настраиваем пользователей, базу и расширения
+    ########################################################################
+
+    - name: "Create test_user"
+      become_user: postgres
+      shell: |
+        psql -c "CREATE USER test_user WITH PASSWORD '{{ test_user_password }}' LOGIN;"
+      args:
+        executable: /bin/bash
+      register: create_test_user_result
+      failed_when: create_test_user_result.rc not in [0,1]
+
+    - name: "Create test_db1"
+      become_user: postgres
+      shell: |
+        psql -c "CREATE DATABASE test_db1 OWNER test_user;"
+      args:
+        executable: /bin/bash
+      register: create_test_db1_result
+      failed_when: create_test_db1_result.rc not in [0,1]
+
+    - name: "Allow test_user to connect from all hosts"
+      become_user: postgres
+      shell: |
+        echo "host  test_db1  test_user  0.0.0.0/0  md5" >> /var/lib/postgresql/15/data/pg_hba.conf
+      args:
+        executable: /bin/bash
+      notify: restart patroni
+
+    - name: "Create pg_stat_statements extension"
+      become_user: postgres
+      shell: |
+        psql -d test_db1 -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+      args:
+        executable: /bin/bash
+
+    - name: "Create svc_monitoring and grant metrics privileges"
+      become_user: postgres
+      shell: |
+        psql -c "CREATE USER svc_monitoring WITH PASSWORD '{{ monitoring_user_password }}';"
+        psql -c "GRANT CONNECT ON DATABASE test_db1 TO svc_monitoring;"
+        psql -c "GRANT USAGE ON SCHEMA public TO svc_monitoring;"
+        psql -c "GRANT SELECT ON ALL TABLES IN SCHEMA public TO svc_monitoring;"
+      args:
+        executable: /bin/bash
+
+  handlers:
+    - name: restart patroni
+      systemd:
+        name: patroni
+        state: restarted
+        enabled: yes

@@ -1,0 +1,82 @@
+---
+- name: "Install etcd on etcd01"
+  hosts: etcd01
+  become: true
+
+  vars:
+    # Имя архива/папки и полная ссылка на файл
+    etcd_file_name: "etcd-v3.5.17-linux-arm64"
+    etcd_download_url: "https://github.com/etcd-io/etcd/releases/download/v3.5.17/etcd-v3.5.17-linux-arm64.tar.gz"
+    etcd_install_dir: "/usr/local/bin"
+
+  tasks:
+    - name: "Install dependencies (tar, wget)"
+      package:
+        name:
+          - tar
+          - wget
+        state: present
+
+    - name: "Download etcd binary (arm64)"
+      get_url:
+        url: "{{ etcd_download_url }}"
+        dest: "/tmp/{{ etcd_file_name }}.tar.gz"
+        mode: '0755'
+
+    - name: "Unarchive etcd"
+      unarchive:
+        src: "/tmp/{{ etcd_file_name }}.tar.gz"
+        dest: "/tmp/"
+        remote_src: yes
+
+    - name: "Move etcd binary to /usr/local/bin"
+      copy:
+        remote_src: yes
+        src: "/tmp/{{ etcd_file_name }}/etcd"
+        dest: "{{ etcd_install_dir }}/etcd"
+        mode: '0755'
+      notify: restart etcd
+
+    - name: "Move etcdctl binary to /usr/local/bin"
+      copy:
+        remote_src: yes
+        src: "/tmp/{{ etcd_file_name }}/etcdctl"
+        dest: "{{ etcd_install_dir }}/etcdctl"
+        mode: '0755'
+      notify: restart etcd
+
+    - name: "Create etcd data directory"
+      file:
+        path: "/var/lib/etcd"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Set up systemd service for etcd"
+      copy:
+        dest: /etc/systemd/system/etcd.service
+        content: |
+          [Unit]
+          Description=etcd key-value store
+          After=network.target
+
+          [Service]
+          ExecStart={{ etcd_install_dir }}/etcd \
+            --name etcd01 \
+            --data-dir /var/lib/etcd \
+            --listen-client-urls http://0.0.0.0:2379 \
+            --advertise-client-urls http://0.0.0.0:2379
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart etcd
+
+  handlers:
+    - name: restart etcd
+      systemd:
+        name: etcd
+        state: restarted
+        enabled: yes
+
